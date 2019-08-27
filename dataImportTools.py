@@ -3,13 +3,11 @@ import requests
 import json
 import psycopg2
 from psycopg2.extras import DictCursor, RealDictCursor
-import wikipedia
 from bs4 import BeautifulSoup as bs
 from bs4 import NavigableString
 import time
 import datetime
 import re
-from SPARQLWrapper import SPARQLWrapper, JSON
 
 verbose = False
 
@@ -189,10 +187,8 @@ def grab_one_weekly_update(link, cursor):
     pubdate = date_from_weekly_url(link)
     update = "INSERT INTO weekly_updates (url, text, published) VALUES (%s, %s, %s) ON CONFLICT ON CONSTRAINT weekly_updates_url_key DO UPDATE SET url = %s, text = %s, published = %s"
     values = (link, page, pubdate, link, page, pubdate)
-    cursor.execute(update, values)
-    # for para in paras:
-    #     print(para)
-    #     print('========')
+    # cursor.execute(update, values)
+    print(cursor.mogrify(update, values))
 
 def dictionaries_for_weekly_updates(limit=2):
     with connect_db() as conn:
@@ -223,8 +219,10 @@ def insert_properties_for_dictionaries(updates_dict_array):
                 if prop['status'] == 'LISTED':
                     values = (prop['refnum'], prop['resname'], prop['address'], prop['city'], prop['county'], prop['state'], prop['acdate'], prop['multname'])
                     wvalues = (prop['refnum'], update_id)
-                    wcursor.execute(prop_insert, values)
-                    wcursor.execute(weekly_insert, wvalues)
+                    # wcursor.execute(prop_insert, values)
+                    # wcursor.execute(weekly_insert, wvalues)
+                    print(wcursor.mogrify(prop_insert, values))
+                    print(wcursor.mogrify(weekly_insert, wvalues))
         wcursor.close()
         
 def date_from_weekly_url(url):
@@ -289,16 +287,50 @@ def parse_weekly_update(update_id, page, url):
 def load_and_process_all_weekly_updates(count=1):
     grab_weekly_updates(count)
     insert_properties_for_dictionaries(dictionaries_for_weekly_updates(count))
-    geocode_with_google()
-    extract_locations_from_google_geocode_responses()
-    assemble_geometry()
     
 def load_and_process_latest_weekly_update():
     grab_latest_weekly_update()
     insert_properties_for_dictionaries(dictionaries_for_weekly_updates(1))
-    geocode_with_google()
-    extract_locations_from_google_geocode_responses()
-    assemble_geometry()
     
+def parse_property_para(para):
+    lines = [x.strip() for x in para.text.splitlines()]
+    return parse_property_lines(lines)
 
-        
+def parse_property_lines(lines):
+    if len(lines) < 5 or len(lines) > 6:
+        return None
+    if lines[0] == '':
+        lines = lines[1:]
+    result = None
+    try:
+        state_county =  lines[0].split(',')
+        state = state_county[0].strip().title()
+        if len(state_county) > 1:
+            county = state_county[1].strip()
+            if county.endswith(' COUNTY'):
+                county = county[:-len(' COUNTY')]
+                county = county.title()
+        else:
+            county = None
+        resname = lines[1].rstrip(',')
+        address = lines[2].rstrip(',')
+        city_numcode = lines[3].rsplit(',', 2)
+        city = city_numcode[0].strip().title()
+        numcode = city_numcode[1].strip()
+        action_code = numcode[0:2]
+        refnum = numcode[2:]
+        status, action_date = lines[4].split(',')
+        action_date = action_date.strip()
+        month, day, year = action_date.split('/')
+        acdate = datetime.datetime(int(year), int(month), int(day), 12)
+        multname = None
+        if len(lines) > 5:
+            multname = lines[5][1:-1]
+        result = {'resname': resname, 'state': state, 'city': city, 'refnum': refnum, 'action_code': action_code, 'nris': numcode, 'county': county, 'address': address, 'status': status, 'date': action_date, 'acdate': acdate, 'multname': multname}
+    
+    except:
+        print(lines)
+    return result
+
+                                                                                                                                                                                                                                                                                                                    
+                
